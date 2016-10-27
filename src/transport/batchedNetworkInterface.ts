@@ -75,12 +75,9 @@ export class HTTPBatchedNetworkInterface extends HTTPFetchNetworkInterface {
               });
             });
 
-            Promise.all(afterwaresPromises).then((responsesAndOptions: {
-              response: IResponse,
-              options: RequestInit,
-            }[]) => {
+            Promise.all(afterwaresPromises).then((responsesAndOptions: any) => {
               const results: Array<IResponse>  = [];
-              responsesAndOptions.forEach(({ response }) => {
+              responsesAndOptions.forEach(({ response }:any) => {
                 results.push(response);
               });
               resolve(results);
