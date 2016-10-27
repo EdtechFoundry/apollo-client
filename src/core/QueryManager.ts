@@ -130,8 +130,13 @@ export enum FetchType {
   poll = 3,
 }
 
+export interface Timer {
+    ref(): void;
+    unref(): void;
+}
+
 export class QueryManager {
-  public pollingTimers: {[queryId: string]: NodeJS.Timer | any}; //oddity in Typescript
+  public pollingTimers: {[queryId: string]: Timer | any}; //oddity in Typescript
   public scheduler: QueryScheduler;
   public store: ApolloStore;
 

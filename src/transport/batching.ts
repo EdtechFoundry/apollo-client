@@ -17,6 +17,11 @@ export interface QueryFetchRequest {
   reject?: (error: Error) => void;
 };
 
+export interface Timer {
+    ref(): void;
+    unref(): void;
+}
+
 // QueryBatcher operates on a queue  of QueryFetchRequests. It polls and checks this queue
 // for new fetch requests. If there are multiple requests in the queue at a time, it will batch
 // them together into one query.
@@ -25,7 +30,7 @@ export class QueryBatcher {
   public queuedRequests: QueryFetchRequest[] = [];
 
   private pollInterval: Number;
-  private pollTimer: NodeJS.Timer | any; //oddity in Typescript
+  private pollTimer: Timer | any; //oddity in Typescript
 
   //This function is called to the queries in the queue to the server.
   private batchFetchFunction: (request: Request[]) => Promise<GraphQLResult[]>;

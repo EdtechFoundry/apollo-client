@@ -12,6 +12,7 @@ import {
   QueryManager,
   QueryListener,
   FetchType,
+  Timer,
 } from '../core/QueryManager';
 
 import { ObservableQuery } from '../core/ObservableQuery';
@@ -37,7 +38,7 @@ export class QueryScheduler {
   public queryManager: QueryManager;
 
   // Map going from polling interval widths to polling timers.
-  private pollingTimers: { [interval: number]: NodeJS.Timer | any }; // oddity in Typescript
+  private pollingTimers: { [interval: number]: Timer | any }; // oddity in Typescript
 
   constructor({
     queryManager,
