@@ -32,7 +32,7 @@ export class ApolloError extends Error {
     this.stack = new Error().stack;
 
     if (!errorMessage) {
-      this.generateErrorMessage();
+      this.message = ApolloError.generateErrorMessage(this.message, this.graphQLErrors, this.networkError);
     } else {
       this.message = errorMessage;
     }
@@ -40,30 +40,37 @@ export class ApolloError extends Error {
     this.extraInfo = extraInfo;
   }
 
+  // nadeesha:
+  // generateErrorMessage function was converted to static.
+  // why?
+  // 1. needed to change the target of this from es5 to es2015 to remove es6-shim
+  // 2. that made this file not have this.generateErrorMessage as a result of some babel compilation in react-native
+  // 3. this made ApolloError threw anytime there was an error.
+
   // Sets the error message on this error according to the
   // the GraphQL and network errors that are present.
   // If the error message has already been set through the
   // constructor or otherwise, this function is a nop.
-  private generateErrorMessage() {
-    if (typeof this.message !== 'undefined' &&
-       this.message !== '') {
-      return;
+  static generateErrorMessage(msg:string, graphQLErrors:any[], networkError:any): string {
+    if (typeof msg !== 'undefined' &&
+       msg !== '') {
+      return msg;
     }
 
     let message = '';
     // If we have GraphQL errors present, add that to the error message.
-    if (Array.isArray(this.graphQLErrors) && this.graphQLErrors.length !== 0) {
-      this.graphQLErrors.forEach((graphQLError) => {
+    if (Array.isArray(graphQLErrors) && graphQLErrors.length !== 0) {
+      graphQLErrors.forEach((graphQLError) => {
         message += 'GraphQL error: ' + graphQLError.message + '\n';
       });
     }
 
-    if (this.networkError) {
-      message += 'Network error: ' + this.networkError.message + '\n';
+    if (networkError) {
+      message += 'Network error: ' + networkError.message + '\n';
     }
 
     // strip newline from the end of the message
     message = message.replace(/\n$/, '');
-    this.message = message;
+    return message;
   }
 }
