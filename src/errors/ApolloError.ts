@@ -61,7 +61,7 @@ export class ApolloError extends Error {
     // If we have GraphQL errors present, add that to the error message.
     if (Array.isArray(graphQLErrors) && graphQLErrors.length !== 0) {
       graphQLErrors.forEach((graphQLError) => {
-        message += 'GraphQL error: ' + graphQLError.message + '\n';
+        message += graphQLError.message + '\n';
       });
     }
 
