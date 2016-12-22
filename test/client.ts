@@ -10,6 +10,10 @@ import ApolloClient, {
   enableFragmentWarnings,
 } from '../src';
 
+import {
+  disableFragmentWarnings as graphqlTagDisableFragmentWarnings,
+} from 'graphql-tag';
+
 import { fragmentDefinitionsMap } from '../src/fragments';
 
 import {
@@ -76,15 +80,16 @@ import { withWarning } from './util/wrap';
 
 import observableToPromise from './util/observableToPromise';
 
-import cloneDeep = require('lodash.clonedeep');
+import cloneDeep = require('lodash/cloneDeep');
 
-import assign = require('lodash.assign');
+import assign = require('lodash/assign');
 
 // make it easy to assert with promises
 chai.use(chaiAsPromised);
 
 // Turn off warnings for repeated fragment names
 disableFragmentWarnings();
+graphqlTagDisableFragmentWarnings();
 
 describe('client', () => {
   it('does not require any arguments and creates store lazily', () => {
@@ -131,7 +136,7 @@ describe('client', () => {
         todos: todosReducer,
         apollo: client.reducer()as any,
       }),
-      applyMiddleware(client.middleware())
+      applyMiddleware(client.middleware()),
     );
 
     assert.deepEqual(client.store.getState(), store.getState());
@@ -145,7 +150,7 @@ describe('client', () => {
         combineReducers({
           todos: todosReducer,
         }),
-        applyMiddleware(client.middleware())
+        applyMiddleware(client.middleware()),
       );
 
       assert.fail();
@@ -153,7 +158,7 @@ describe('client', () => {
       assert.equal(
         error.message,
         'Existing store does not use apolloReducer. Please make sure the store ' +
-        'is properly configured and "reduxRootSelector" is correctly specified.'
+        'is properly configured and "reduxRootSelector" is correctly specified.',
       );
     }
 
@@ -172,8 +177,9 @@ describe('client', () => {
           mutations: {},
           data: {},
           optimistic: [],
+          reducerError: null,
         },
-      }
+      },
     );
   });
 
@@ -183,12 +189,6 @@ describe('client', () => {
     client.initStore();
 
     assert.equal(client.reduxRootKey, 'apollo');
-  });
-
-  it('throws on removed queryTransformer option', () => {
-    assert.throws(() => {
-      new ApolloClient({ queryTransformer: 'anything' });
-    }, /addTypename/);
   });
 
   it('sets reduxRootKey if you use ApolloClient as middleware', () => {
@@ -201,7 +201,7 @@ describe('client', () => {
         // here "client.setStore(store)" will be called internally,
         // this method throws if "reduxRootSelector" or "reduxRootKey"
         // are not configured properly
-        applyMiddleware(client.middleware())
+        applyMiddleware(client.middleware()),
     );
 
     assert.equal(client.reduxRootKey, 'apollo');
@@ -222,7 +222,7 @@ describe('client', () => {
           // here "client.setStore(store)" will be called internally,
           // this method throws if "reduxRootSelector" or "reduxRootKey"
           // are not configured properly
-          applyMiddleware(client.middleware())
+          applyMiddleware(client.middleware()),
       );
 
       // Check if the key is added to the client instance, like before
@@ -244,7 +244,7 @@ describe('client', () => {
         // here "client.setStore(store)" will be called internally,
         // this method throws if "reduxRootSelector" or "reduxRootKey"
         // are not configured properly
-        applyMiddleware(client.middleware())
+        applyMiddleware(client.middleware()),
     );
   });
 
@@ -262,7 +262,7 @@ describe('client', () => {
         // here "client.setStore(store)" will be called internally,
         // this method throws if "reduxRootSelector" or "reduxRootKey"
         // are not configured properly
-        applyMiddleware(client.middleware())
+        applyMiddleware(client.middleware()),
     );
 
     // Check if the key is added to the client instance, like before
@@ -281,7 +281,7 @@ describe('client', () => {
     } catch (error) {
       assert.equal(
           error.message,
-          'Both "reduxRootKey" and "reduxRootSelector" are configured, but only one of two is allowed.'
+          'Both "reduxRootKey" and "reduxRootSelector" are configured, but only one of two is allowed.',
       );
     }
 
@@ -304,7 +304,7 @@ describe('client', () => {
           'Cannot initialize the store because "reduxRootSelector" or "reduxRootKey" is provided. ' +
           'They should only be used when the store is created outside of the client. ' +
           'This may lead to unexpected results when querying the store internally. ' +
-          `Please remove that option from ApolloClient constructor.`
+          `Please remove that option from ApolloClient constructor.`,
       );
     }
   });
@@ -324,7 +324,7 @@ describe('client', () => {
           'Cannot initialize the store because "reduxRootSelector" or "reduxRootKey" is provided. ' +
           'They should only be used when the store is created outside of the client. ' +
           'This may lead to unexpected results when querying the store internally. ' +
-          `Please remove that option from ApolloClient constructor.`
+          `Please remove that option from ApolloClient constructor.`,
       );
     }
   });
@@ -415,7 +415,7 @@ describe('client', () => {
         todos: todosReducer,
         apollo: client.reducer() as any, // XXX see why this type fails
       }),
-      applyMiddleware(client.middleware())
+      applyMiddleware(client.middleware()),
     );
 
     return client.query({ query })
@@ -458,7 +458,11 @@ describe('client', () => {
             name: 'Luke Skywalker',
           },
           'ROOT_QUERY.allPeople({"first":1})': {
-            people: [ 'ROOT_QUERY.allPeople({"first":"1"}).people.0' ],
+            people: [ {
+              type: 'id',
+              generated: true,
+              id: 'ROOT_QUERY.allPeople({"first":"1"}).people.0',
+            } ],
           },
           ROOT_QUERY: {
             'allPeople({"first":1})': {
@@ -474,21 +478,22 @@ describe('client', () => {
 
     const finalState = { apollo: assign({}, initialState.apollo, {
       queries: {
-        '0': {
+        '1': {
           queryString: print(query),
           variables: undefined,
           loading: false,
           networkStatus: NetworkStatus.ready,
-          stopped: false,
           networkError: null,
           graphQLErrors: null,
           forceFetch: false,
           returnPartialData: false,
-          lastRequestId: 1,
+          lastRequestId: 2,
           previousVariables: null,
+          metadata: null,
         },
       },
       mutations: {},
+      reducerError: null,
     }) };
 
     const client = new ApolloClient({
@@ -545,7 +550,7 @@ describe('client', () => {
         todos: todosReducer,
         [reduxRootKey]: client.reducer()as any,
       }),
-      applyMiddleware(client.middleware())
+      applyMiddleware(client.middleware()),
     );
 
     return client.query({ query })
@@ -586,6 +591,101 @@ describe('client', () => {
       .catch((error: ApolloError) => {
         assert.deepEqual(error.graphQLErrors, errors);
       });
+  });
+
+it('should not let errors in observer.next reach the store', (done) => {
+
+    const query = gql`
+      query people {
+        allPeople(first: 1) {
+          people {
+            name
+          }
+        }
+      }
+    `;
+
+   const data = {
+      allPeople: {
+        people: [
+          {
+            name: 'Luke Skywalker',
+          },
+        ],
+      },
+    };
+
+    const networkInterface = mockNetworkInterface({
+      request: { query },
+      result: { data },
+    });
+
+    const client = new ApolloClient({
+      networkInterface,
+      addTypename: false,
+    });
+
+    const handle = client.watchQuery({ query });
+
+    const consoleDotError = console.error;
+    console.error = (err: string) => {
+      console.error = consoleDotError;
+      if (err.match(/Error in observer.next/)) {
+        done();
+      } else {
+        done(new Error('Expected error in observer.next to be caught'));
+      }
+    };
+
+    handle.subscribe({
+      next(result) {
+        throw new Error('this error should not reach the store');
+      },
+    });
+  });
+
+  it('should not let errors in observer.error reach the store', (done) => {
+
+    const query = gql`
+      query people {
+        allPeople(first: 1) {
+          people {
+            name
+          }
+        }
+      }
+    `;
+
+    const networkInterface = mockNetworkInterface({
+      request: { query },
+      result: { },
+    });
+
+    const client = new ApolloClient({
+      networkInterface,
+      addTypename: false,
+    });
+
+    const handle = client.watchQuery({ query });
+
+    const consoleDotError = console.error;
+    console.error = (err: string) => {
+      console.error = consoleDotError;
+      if (err.match(/Error in observer.error/)) {
+        done();
+      } else {
+        done(new Error('Expected error in observer.error to be caught'));
+      }
+    };
+
+    handle.subscribe({
+      next() {
+        done(new Error('did not expect next to be called'));
+      },
+      error(err) {
+        throw new Error('this error should not reach the store');
+      },
+    });
   });
 
   it('should allow for subscribing to a request', (done) => {
@@ -926,6 +1026,94 @@ describe('client', () => {
     });
   });
 
+  it('does not deduplicate queries by default', () => {
+    const queryDoc = gql`
+      query {
+        author {
+          name
+        }
+      }`;
+    const data = {
+      author: {
+        name: 'Jonas',
+      },
+    };
+    const data2 = {
+      author: {
+        name: 'Dhaivat',
+      },
+    };
+
+    // we have two responses for identical queries, but only the first should be requested.
+    // the second one should never make it through to the network interface.
+    const networkInterface = mockNetworkInterface({
+      request: { query: queryDoc },
+      result: { data },
+      delay: 10,
+    },
+    {
+      request: { query: queryDoc },
+      result: { data: data2 },
+    });
+    const client = new ApolloClient({
+      networkInterface,
+      addTypename: false,
+    });
+
+    const q1 = client.query({ query: queryDoc });
+    const q2 = client.query({ query: queryDoc });
+
+    // if deduplication happened, result2.data will equal data.
+    return Promise.all([q1, q2]).then(([result1, result2]) => {
+      assert.deepEqual(result1.data, data);
+      assert.deepEqual(result2.data, data2);
+    });
+  });
+
+  it('deduplicates queries if the option is set', () => {
+    const queryDoc = gql`
+      query {
+        author {
+          name
+        }
+      }`;
+    const data = {
+      author: {
+        name: 'Jonas',
+      },
+    };
+    const data2 = {
+      author: {
+        name: 'Dhaivat',
+      },
+    };
+
+    // we have two responses for identical queries, but only the first should be requested.
+    // the second one should never make it through to the network interface.
+    const networkInterface = mockNetworkInterface({
+      request: { query: queryDoc },
+      result: { data },
+      delay: 10,
+    },
+    {
+      request: { query: queryDoc },
+      result: { data: data2 },
+    });
+    const client = new ApolloClient({
+      networkInterface,
+      addTypename: false,
+      queryDeduplication: true,
+    });
+
+    const q1 = client.query({ query: queryDoc });
+    const q2 = client.query({ query: queryDoc });
+
+    // if deduplication didn't happen, result.data will equal data2.
+    return Promise.all([q1, q2]).then(([result1, result2]) => {
+      assert.deepEqual(result1.data, result2.data);
+    });
+  });
+
   describe('accepts dataIdFromObject option', () => {
     const query = gql`
       query people {
@@ -968,7 +1156,7 @@ describe('client', () => {
             {
               id: '1',
               name: 'Luke Skywalker',
-            }
+            },
           );
         });
     });
@@ -989,7 +1177,7 @@ describe('client', () => {
         combineReducers({
           apollo: client.reducer()as any,
         }),
-        applyMiddleware(client.middleware())
+        applyMiddleware(client.middleware()),
       );
 
 
@@ -1000,7 +1188,7 @@ describe('client', () => {
             {
               id: '1',
               name: 'Luke Skywalker',
-            }
+            },
           );
         });
     });
@@ -1252,7 +1440,9 @@ describe('client', () => {
       // hacky solution that allows us to test whether the warning is printed
       const oldWarn = console.warn;
       console.warn = (str: string) => {
-        assert.include(str, 'Warning: fragment with name');
+        if (!str.match(/deprecated/)) {
+          assert.include(str, 'Warning: fragment with name');
+        }
       };
 
       createFragment(fragmentDoc);
@@ -1516,7 +1706,9 @@ describe('client', () => {
     it('should not print a warning if we call disableFragmentWarnings', (done) => {
       const oldWarn = console.warn;
       console.warn = (str: string) => {
-        done(new Error('Returned a warning despite calling disableFragmentWarnings'));
+        if (!str.match(/deprecated/)) {
+          done(new Error('Returned a warning despite calling disableFragmentWarnings'));
+        }
       };
       disableFragmentWarnings();
       createFragment(gql`
@@ -1718,6 +1910,67 @@ describe('client', () => {
     });
   });
 
+  it('should throw an error if response to batch request is not an array', (done) => {
+    const firstQuery = gql`
+      query {
+        author {
+          firstName
+          lastName
+        }
+      }`;
+    const firstResult = {
+      data: {
+        author: {
+          firstName: 'John',
+          lastName: 'Smith',
+        },
+      },
+      loading: false,
+    };
+    const secondQuery = gql`
+      query {
+        person {
+          name
+        }
+      }`;
+    const url = 'http://not-a-real-url.com';
+    const oldFetch = fetch;
+    fetch = createMockFetch({
+      url,
+      opts: {
+        body: JSON.stringify([
+          {
+            query: print(firstQuery),
+          },
+          {
+            query: print(secondQuery),
+          },
+        ]),
+        headers: {
+          Accept: '*/*',
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+      result: createMockedIResponse(firstResult),
+    });
+    const networkInterface = createBatchingNetworkInterface({
+      uri: 'http://not-a-real-url.com',
+      batchInterval: 5,
+      opts: {},
+    });
+    Promise.all([
+      networkInterface.query({ query: firstQuery }),
+      networkInterface.query({ query: secondQuery }),
+    ]).then((results) => {
+      assert.equal(true, false, 'expected response to throw an error');
+    }).catch( e => {
+      assert.equal(e.message, 'BatchingNetworkInterface: server response is not an array');
+      fetch = oldFetch;
+      done();
+    });
+  });
+
   it('should not do transport-level batching when the interval is exceeded', (done) => {
     const firstQuery = gql`
       query {
@@ -1799,13 +2052,87 @@ describe('client', () => {
     });
   });
 
+  it('should enable dev tools logging', () => {
+    const query = gql`
+      query people {
+        allPeople(first: 1) {
+          people {
+            name
+          }
+        }
+      }
+    `;
+
+    const data = {
+      allPeople: {
+        people: [
+          {
+            name: 'Luke Skywalker',
+          },
+        ],
+      },
+    };
+
+    it('with self-made store', () => {
+      const networkInterface = mockNetworkInterface({
+        request: { query: cloneDeep(query) },
+        result: { data },
+      });
+
+      const client = new ApolloClient({
+        networkInterface,
+        addTypename: false,
+      });
+
+      const log: any[] = [];
+      client.__actionHookForDevTools((entry: any) => {
+        log.push(entry);
+      });
+
+      return client.query({ query })
+        .then(() => {
+          assert.equal(log.length, 2);
+          assert.equal(log[1].state.queries['0'].loading, false);
+        });
+    });
+
+    it('with passed in store', () => {
+      const networkInterface = mockNetworkInterface({
+        request: { query: cloneDeep(query) },
+        result: { data },
+      });
+
+      const client = new ApolloClient({
+        networkInterface,
+        addTypename: false,
+      });
+
+      createStore(
+        combineReducers({
+          apollo: client.reducer() as any,
+        }),
+        {}, // initial state
+        applyMiddleware(client.middleware()),
+      );
+
+      const log: any[] = [];
+      client.__actionHookForDevTools((entry: any) => {
+        log.push(entry);
+      });
+
+      return client.query({ query })
+        .then(() => {
+          assert.equal(log.length, 2);
+        });
+    });
+  });
 });
 
 function clientRoundrip(
   query: Document,
   data: GraphQLResult,
   variables?: any,
-  fragments?: FragmentDefinition[]
+  fragments?: FragmentDefinition[],
 ) {
   const networkInterface = mockNetworkInterface({
     request: { query: cloneDeep(query) },

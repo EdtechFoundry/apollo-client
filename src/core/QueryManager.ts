@@ -4,8 +4,13 @@ import {
   Request,
 } from '../transport/networkInterface';
 
-import forOwn = require('lodash.forown');
-import isEqual = require('lodash.isequal');
+import {
+  Deduplicator,
+} from '../transport/Deduplicator';
+
+import forOwn = require('lodash/forOwn');
+import isEqual = require('lodash/isEqual');
+import assign = require('lodash/assign');
 
 import {
   ApolloStore,
@@ -85,6 +90,7 @@ import {
 import { tryFunctionOrLogError } from '../util/errorHandling';
 
 import {
+  isApolloError,
   ApolloError,
 } from '../errors/ApolloError';
 
@@ -106,7 +112,7 @@ export type ApolloQueryResult = {
 
   // This type is different from the GraphQLResult type because it doesn't include errors.
   // Those are thrown via the standard promise/observer catch mechanism.
-}
+};
 
 // A result transformer is given the data that is to be returned from the store from a query or
 // mutation, and can modify or observe it before the value is provided to your application.
@@ -142,17 +148,20 @@ export class QueryManager {
 
   private addTypename: boolean;
   private networkInterface: NetworkInterface;
+  private deduplicator: Deduplicator;
   private reduxRootSelector: ApolloStateSelector;
   private resultTransformer: ResultTransformer;
   private resultComparator: ResultComparator;
   private reducerConfig: ApolloReducerConfig;
+  private queryDeduplication: boolean;
+
   // TODO REFACTOR collect all operation-related info in one place (e.g. all these maps)
   // this should be combined with ObservableQuery, but that needs to be expanded to support
   // mutations and subscriptions as well.
   private queryListeners: { [queryId: string]: QueryListener[] };
   private queryDocuments: { [queryId: string]: Document };
 
-  private idCounter = 0;
+  private idCounter = 1; // XXX let's not start at zero to avoid pain with bad checks
 
   // A map going from a requestId to a promise that has not yet been resolved. We use this to keep
   // track of queries that are inflight and reject them in case some
@@ -183,6 +192,7 @@ export class QueryManager {
     resultTransformer,
     resultComparator,
     addTypename = true,
+    queryDeduplication = false,
   }: {
     networkInterface: NetworkInterface,
     store: ApolloStore,
@@ -191,10 +201,12 @@ export class QueryManager {
     resultTransformer?: ResultTransformer,
     resultComparator?: ResultComparator,
     addTypename?: boolean,
+    queryDeduplication?: boolean,
   }) {
     // XXX this might be the place to do introspection for inserting the `id` into the query? or
     // is that the network interface?
     this.networkInterface = networkInterface;
+    this.deduplicator = new Deduplicator(networkInterface);
     this.store = store;
     this.reduxRootSelector = reduxRootSelector;
     this.reducerConfig = reducerConfig;
@@ -204,6 +216,7 @@ export class QueryManager {
     this.queryListeners = {};
     this.queryDocuments = {};
     this.addTypename = addTypename;
+    this.queryDeduplication = queryDeduplication;
 
     this.scheduler = new QueryScheduler({
       queryManager: this,
@@ -273,19 +286,6 @@ export class QueryManager {
 
     this.queryDocuments[mutationId] = mutation;
 
-    const extraReducers = Object.keys(this.observableQueries).map( queryId => {
-      const queryOptions = this.observableQueries[queryId].observableQuery.options;
-      if (queryOptions.reducer) {
-        return createStoreReducer(
-          queryOptions.reducer,
-          queryOptions.query,
-          queryOptions.variables,
-          this.reducerConfig,
-          );
-      }
-      return null;
-    }).filter( reducer => reducer !== null );
-
     this.store.dispatch({
       type: 'APOLLO_MUTATION_INIT',
       mutationString,
@@ -295,7 +295,7 @@ export class QueryManager {
       mutationId,
       optimisticResponse,
       resultBehaviors: [...resultBehaviors, ...updateQueriesResultBehaviors],
-      extraReducers,
+      extraReducers: this.getExtraReducers(),
     });
 
     return new Promise((resolve, reject) => {
@@ -317,7 +317,7 @@ export class QueryManager {
                 ...resultBehaviors,
                 ...this.collectResultBehaviorsFromUpdateQueries(updateQueries, result),
             ],
-            extraReducers,
+            extraReducers: this.getExtraReducers(),
           });
 
           refetchQueries.forEach((name) => { this.refetchQueryByName(name); });
@@ -344,7 +344,7 @@ export class QueryManager {
   public queryListenerForObserver(
     queryId: string,
     options: WatchQueryOptions,
-    observer: Observer<ApolloQueryResult>
+    observer: Observer<ApolloQueryResult>,
   ): QueryListener {
     let lastResult: ApolloQueryResult;
     return (queryStoreValue: QueryStoreValue) => {
@@ -373,9 +373,20 @@ export class QueryManager {
             networkError: queryStoreValue.networkError,
           });
           if (observer.error) {
-            observer.error(apolloError);
+            try {
+              observer.error(apolloError);
+            } catch (e) {
+              console.error(`Error in observer.error \n${e.stack}`);
+            }
           } else {
             console.error('Unhandled error', apolloError, apolloError.stack);
+            if (process.env.NODE_ENV !== 'production') {
+              /* tslint:disable-next-line */
+              console.info(
+                'An unhandled error was thrown because no error handler is registered ' +
+                'for the query ' + options.query.loc.source,
+              );
+            }
           }
         } else {
           try {
@@ -385,15 +396,19 @@ export class QueryManager {
                 query: this.queryDocuments[queryId],
                 variables: queryStoreValue.previousVariables || queryStoreValue.variables,
                 returnPartialData: options.returnPartialData || options.noFetch,
+                config: this.reducerConfig,
               }),
               loading: queryStoreValue.loading,
               networkStatus: queryStoreValue.networkStatus,
             };
-
             if (observer.next) {
               if (this.isDifferentResult(lastResult, resultFromStore)) {
                 lastResult = resultFromStore;
-                observer.next(this.transformResult(resultFromStore));
+                try {
+                  observer.next(this.transformResult(resultFromStore));
+                } catch (e) {
+                  console.error(`Error in observer.next \n${e.stack}`);
+                }
               }
             }
           } catch (error) {
@@ -402,6 +417,7 @@ export class QueryManager {
                 networkError: error,
               }));
             }
+            return;
           }
         }
       }
@@ -419,9 +435,14 @@ export class QueryManager {
     // Call just to get errors synchronously
     getQueryDefinition(options.query);
 
+    let transformedOptions = assign({}, options) as WatchQueryOptions;
+    if (this.addTypename) {
+      transformedOptions.query = addTypenameToDocument(transformedOptions.query);
+    }
+
     let observableQuery = new ObservableQuery({
       scheduler: this.scheduler,
-      options: options,
+      options: transformedOptions,
       shouldSubscribe: shouldSubscribe,
     });
 
@@ -459,6 +480,7 @@ export class QueryManager {
       forceFetch = false,
       returnPartialData = false,
       noFetch = false,
+      metadata = null,
     } = options;
 
     const {
@@ -478,6 +500,7 @@ export class QueryManager {
         store: this.reduxRootSelector(this.store.getState()).data,
         returnPartialData: true,
         variables,
+        config: this.reducerConfig,
       });
 
       // If we're in here, only fetch if we have missing fields
@@ -505,6 +528,7 @@ export class QueryManager {
       storePreviousVariables: shouldFetch,
       isPoll: fetchType === FetchType.poll,
       isRefetch: fetchType === FetchType.refetch,
+      metadata,
     });
 
     // If there is no part of the query we need to fetch from the server (or,
@@ -517,6 +541,7 @@ export class QueryManager {
         document: queryDoc,
         complete: !shouldFetch,
         queryId,
+        requestId,
       });
     }
 
@@ -551,6 +576,10 @@ export class QueryManager {
     return this.reduxRootSelector(this.store.getState());
   }
 
+  public getInitialState(): { data: Object } {
+    return { data: this.getApolloState().data };
+  }
+
   public getDataWithOptimisticResults(): NormalizedCache {
     return getDataWithOptimisticResults(this.getApolloState());
   }
@@ -580,7 +609,7 @@ export class QueryManager {
     // Insert the ObservableQuery into this.observableQueriesByName if the query has a name
     const queryDef = getQueryDefinition(observableQuery.options.query);
     if (queryDef.name && queryDef.name.value) {
-      const queryName = getQueryDefinition(observableQuery.options.query).name.value;
+      const queryName = queryDef.name.value;
 
       // XXX we may we want to warn the user about query name conflicts in the future
       this.queryIdsByName[queryName] = this.queryIdsByName[queryName] || [];
@@ -590,11 +619,14 @@ export class QueryManager {
 
   public removeObservableQuery(queryId: string) {
     const observableQuery = this.observableQueries[queryId].observableQuery;
-    const queryName = getQueryDefinition(observableQuery.options.query).name.value;
+    const definition = getQueryDefinition(observableQuery.options.query);
+    const queryName = definition.name ? definition.name.value : null;
     delete this.observableQueries[queryId];
-    this.queryIdsByName[queryName] = this.queryIdsByName[queryName].filter((val) => {
-      return !(observableQuery.queryId === val);
-    });
+    if (queryName) {
+      this.queryIdsByName[queryName] = this.queryIdsByName[queryName].filter((val) => {
+        return !(observableQuery.queryId === val);
+      });
+    }
   }
 
   public resetStore(): void {
@@ -621,7 +653,9 @@ export class QueryManager {
     // the promise for it will be rejected and its results will not be written to the
     // store.
     Object.keys(this.observableQueries).forEach((queryId) => {
-      if (! this.observableQueries[queryId].observableQuery.options.noFetch) {
+      const storeQuery = this.reduxRootSelector(this.store.getState()).queries[queryId];
+
+      if (!this.observableQueries[queryId].observableQuery.options.noFetch) {
         this.observableQueries[queryId].observableQuery.refetch();
       }
     });
@@ -630,17 +664,16 @@ export class QueryManager {
   public startQuery(queryId: string, options: WatchQueryOptions, listener: QueryListener) {
     this.addQueryListener(queryId, listener);
 
-    // If the pollInterval is present, the scheduler has already taken care of firing the first
-    // fetch so we don't have to worry about it here.
-    if (!options.pollInterval) {
-      this.fetchQuery(queryId, options);
-    }
+    this.fetchQuery(queryId, options)
+    // `fetchQuery` returns a Promise. In case of a failure it should be caucht or else the
+    // console will show an `Uncaught (in promise)` message. Ignore the error for now.
+    .catch((error: Error) => undefined);
 
     return queryId;
   }
 
   public startGraphQLSubscription(
-    options: SubscriptionOptions
+    options: SubscriptionOptions,
   ): Observable<any> {
     const {
       document,
@@ -732,6 +765,7 @@ export class QueryManager {
       query: document,
       variables,
       returnPartialData: false,
+      config: this.reducerConfig,
     };
 
     try {
@@ -809,7 +843,7 @@ export class QueryManager {
   private collectResultBehaviorsFromUpdateQueries(
     updateQueries: MutationQueryReducersMap,
     mutationResult: Object,
-    isOptimistic = false
+    isOptimistic = false,
   ): MutationBehavior[] {
     if (!updateQueries) {
       return [];
@@ -912,7 +946,7 @@ export class QueryManager {
     const retPromise = new Promise<ApolloQueryResult>((resolve, reject) => {
       this.addFetchQueryPromise(requestId, retPromise, resolve, reject);
 
-      this.networkInterface.query(request)
+      this.deduplicator.query(request, this.queryDeduplication)
         .then((result: GraphQLResult) => {
 
           const extraReducers = this.getExtraReducers();
@@ -950,19 +984,26 @@ export class QueryManager {
               variables,
               returnPartialData: returnPartialData || noFetch,
               query: document,
+              config: this.reducerConfig,
             });
             // ensure multiple errors don't get thrown
             /* tslint:disable */
           } catch (e) {}
           /* tslint:enable */
 
+          const {reducerError} = this.getApolloState();
+          if (!resultFromStore && reducerError) {
+            return Promise.reject(reducerError);
+          }
+
           // return a chainable promise
           this.removeFetchQueryPromise(requestId);
           resolve({ data: resultFromStore, loading: false, networkStatus: NetworkStatus.ready });
+          return null;
         }).catch((error: Error) => {
           // This is for the benefit of `refetch` promises, which currently don't get their errors
           // through the store like watchQuery observers do
-          if (error instanceof ApolloError) {
+          if (isApolloError(error)) {
             reject(error);
           } else {
             this.store.dispatch({
