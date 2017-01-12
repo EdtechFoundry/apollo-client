@@ -376,10 +376,10 @@ export class QueryManager {
             try {
               observer.error(apolloError);
             } catch (e) {
-              console.error(`Error in observer.error \n${e.stack}`);
+              console.warn(`Error in observer.error \n${e.stack}`);
             }
           } else {
-            console.error('Unhandled error', apolloError, apolloError.stack);
+            console.warn('Unhandled error', apolloError, apolloError.stack);
             if (process.env.NODE_ENV !== 'production') {
               /* tslint:disable-next-line */
               console.info(
@@ -407,7 +407,7 @@ export class QueryManager {
                 try {
                   observer.next(this.transformResult(resultFromStore));
                 } catch (e) {
-                  console.error(`Error in observer.next \n${e.stack}`);
+                  console.warn(`Error in observer.next \n${e.stack}`);
                 }
               }
             }
