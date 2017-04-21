@@ -4,13 +4,8 @@ import {
 } from '../transport/networkInterface';
 
 import {
-  Document,
-  GraphQLResult,
-} from 'graphql';
-
-import {
   print,
-} from 'graphql-tag/printer';
+} from 'graphql/language/printer';
 
 export class Deduplicator {
 
@@ -37,6 +32,10 @@ export class Deduplicator {
     .then( res => {
       delete this.inFlightRequestPromises[key];
       return res;
+    })
+    .catch( err => {
+        delete this.inFlightRequestPromises[key];
+        throw err;
     });
   }
 

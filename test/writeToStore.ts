@@ -1,7 +1,5 @@
 import { assert } from 'chai';
-import cloneDeep = require('lodash/cloneDeep');
-import assign = require('lodash/assign');
-import omit = require('lodash/omit');
+import { cloneDeep, assign, omit } from 'lodash';
 
 import {
   writeQueryToStore,
@@ -13,22 +11,20 @@ import {
 } from '../src/data/storeUtils';
 
 import {
-  getIdField,
-} from '../src/data/extensions';
-
-import {
   NormalizedCache,
 } from '../src/data/storeUtils';
 
 import {
-  Selection,
-  Field,
-  Definition,
-  OperationDefinition,
-  Node,
+  SelectionNode,
+  FieldNode,
+  DefinitionNode,
+  OperationDefinitionNode,
+  ASTNode,
 } from 'graphql';
 
 import gql from 'graphql-tag';
+
+const getIdField = ({id}: {id: string}) => id;
 
 describe('writing to the store', () => {
   it('properly normalizes a trivial item', () => {
@@ -716,16 +712,16 @@ describe('writing to the store', () => {
       },
     ];
 
-    function isOperationDefinition(definition: Definition): definition is OperationDefinition {
+    function isOperationDefinition(definition: DefinitionNode): definition is OperationDefinitionNode {
       return definition.kind === 'OperationDefinition';
     }
 
-    function isField(selection: Selection): selection is Field {
+    function isField(selection: SelectionNode): selection is FieldNode {
       return selection.kind === 'Field';
     }
 
     testData.forEach((data) => {
-      data.mutation.definitions.forEach((definition: OperationDefinition) => {
+      data.mutation.definitions.forEach((definition: OperationDefinitionNode) => {
         if (isOperationDefinition(definition)) {
           definition.selectionSet.selections.forEach((selection) => {
             if (isField(selection)) {
@@ -784,11 +780,11 @@ describe('writing to the store', () => {
       },
     };
 
-    function isOperationDefinition(value: Node): value is OperationDefinition {
+    function isOperationDefinition(value: ASTNode): value is OperationDefinitionNode {
       return value.kind === 'OperationDefinition';
     }
 
-    mutation.definitions.map((def: OperationDefinition) => {
+    mutation.definitions.map((def: OperationDefinitionNode) => {
       if (isOperationDefinition(def)) {
         assert.deepEqual(writeSelectionSetToStore({
           dataId: '5',
@@ -882,7 +878,7 @@ describe('writing to the store', () => {
             generated: false,
           },
         },
-        [dataIdFromObject(data.author)]: {
+        [dataIdFromObject(data.author)!]: {
           firstName: data.author.firstName,
           id: data.author.id,
           __typename: data.author.__typename,
@@ -921,7 +917,7 @@ describe('writing to the store', () => {
             generated: false,
           },
         },
-        [dataIdFromObject(data.author)]: {
+        [dataIdFromObject(data.author)!]: {
           __typename: data.author.__typename,
           id: data.author.id,
           info: {
@@ -1015,43 +1011,6 @@ describe('writing to the store', () => {
       dataIdFromObject,
     });
     assert.deepEqual(storeWithId, expStoreWithId);
-  });
-
-  it('throw an error if a variable is not provided', () => {
-    const testData = [
-      {
-        mutation: gql`mutation mut($v: ID) { mut(v: $v) { id } }`,
-        variables: { not_the_proper_variable_name: '1' },
-        expected: /The inline argument "v" is expected as a variable but was not provided./,
-      },
-    ];
-
-    const result: any = { mut: { id: '1' } };
-
-    function isOperationDefinition(value: Node): value is OperationDefinition {
-      return value.kind === 'OperationDefinition';
-    }
-
-    testData.forEach(({mutation, variables, expected}) => {
-      mutation.definitions.map((def: OperationDefinition) => {
-        assert.throws(() => {
-          if (isOperationDefinition(def)) {
-            writeSelectionSetToStore({
-              dataId: '5',
-              selectionSet: def.selectionSet,
-              result: cloneDeep(result),
-              context: {
-                store: {},
-                variables,
-                dataIdFromObject: () => '5',
-              },
-            });
-          } else {
-            throw 'No operation definition found';
-          }
-        }, expected);
-      });
-    });
   });
 
   it('does not swallow errors other than field errors', () => {

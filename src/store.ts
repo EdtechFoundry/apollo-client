@@ -7,6 +7,10 @@ import {
 } from 'redux';
 
 import {
+  FragmentMatcher,
+} from 'graphql-anywhere';
+
+import {
   data,
 } from './data/store';
 
@@ -27,32 +31,40 @@ import {
 import {
   optimistic,
   OptimisticStore,
+  getDataWithOptimisticResults,
 } from './optimistic-data/store';
+export { getDataWithOptimisticResults };
 
 import {
   ApolloAction,
+  isQueryResultAction,
+  isMutationResultAction,
+  isSubscriptionResultAction,
 } from './actions';
 
 import {
   IdGetter,
-} from './data/extensions';
-
-import {
-  MutationBehaviorReducerMap,
-} from './data/mutationResults';
+} from './core/types';
 
 import {
   CustomResolverMap,
 } from './data/readFromStore';
 
-import assign = require('lodash/assign');
+import { assign } from './util/assign';
+
+export interface ReducerError {
+  error: Error;
+  queryId?: string;
+  mutationId?: string;
+  subscriptionId?: number;
+}
 
 export interface Store {
   data: NormalizedCache;
   queries: QueryStore;
   mutations: MutationStore;
   optimistic: OptimisticStore;
-  reducerError: Error | null;
+  reducerError: ReducerError | null;
 }
 
 /**
@@ -77,9 +89,23 @@ const crashReporter = (store: any) => (next: any) => (action: any) => {
   }
 };
 
+const createReducerError = (error: Error, action: ApolloAction): ReducerError => {
+  const reducerError: ReducerError = { error };
+
+  if (isQueryResultAction(action)) {
+    reducerError.queryId = action.queryId;
+  } else if (isSubscriptionResultAction(action)) {
+    reducerError.subscriptionId = action.subscriptionId;
+  } else if (isMutationResultAction(action)) {
+    reducerError.mutationId = action.mutationId;
+  }
+
+  return reducerError;
+};
+
 export type ApolloReducer = (store: NormalizedCache, action: ApolloAction) => NormalizedCache;
 
-export function createApolloReducer(config: ApolloReducerConfig): Function {
+export function createApolloReducer(config: ApolloReducerConfig): (state: Store, action: ApolloAction) => Store {
   return function apolloReducer(state = {} as Store, action: ApolloAction) {
     try {
       const newState: Store = {
@@ -95,7 +121,7 @@ export function createApolloReducer(config: ApolloReducerConfig): Function {
       };
 
       // use the two lines below to debug tests :)
-      // console.log('ACTION', action.type);
+      // console.log('ACTION', action.type, JSON.stringify(action, null, 2));
       // console.log('new state', newState);
 
       // Note, we need to have the results of the
@@ -109,11 +135,20 @@ export function createApolloReducer(config: ApolloReducerConfig): Function {
         config,
       );
 
+      if (state.data === newState.data &&
+      state.mutations === newState.mutations &&
+      state.queries === newState.queries &&
+      state.optimistic === newState.optimistic &&
+      state.reducerError === newState.reducerError) {
+        return state;
+      }
+
       return newState;
     } catch (reducerError) {
-      return assign({}, state, {
-         reducerError,
-       });
+      return {
+        ...state,
+        reducerError: createReducerError(reducerError, action),
+      };
     }
   };
 }
@@ -169,23 +204,15 @@ export function createApolloStore({
   }
 
   return createStore(
-    combineReducers({ [reduxRootKey]: createApolloReducer(config) as any }), // XXX see why this type fails
+    combineReducers({ [reduxRootKey]: createApolloReducer(config) }),
     initialState,
     compose(...enhancers),
   );
 }
 
-
 export type ApolloReducerConfig = {
   dataIdFromObject?: IdGetter;
-  mutationBehaviorReducers?: MutationBehaviorReducerMap;
   customResolvers?: CustomResolverMap;
+  fragmentMatcher?: FragmentMatcher;
+  addTypename?: boolean,
 };
-
-export function getDataWithOptimisticResults(store: Store): NormalizedCache {
-  if (store.optimistic.length === 0) {
-    return store.data;
-  }
-  const patches = store.optimistic.map(opt => opt.data);
-  return assign({}, store.data, ...patches) as NormalizedCache;
-}

@@ -7,11 +7,12 @@ import {
 
 import {
   createBatchingNetworkInterface,
+  HTTPBatchedNetworkInterface,
 } from './transport/batchedNetworkInterface';
 
 import {
   print,
-} from 'graphql-tag/printer';
+} from 'graphql/language/printer';
 
 import {
   createApolloStore,
@@ -30,7 +31,8 @@ import {
 import {
   WatchQueryOptions,
   MutationOptions,
-  DeprecatedSubscriptionOptions,
+  SubscriptionOptions,
+  FetchPolicy,
 } from './core/watchQueryOptions';
 
 import {
@@ -42,7 +44,6 @@ import {
 } from './data/writeToStore';
 
 import {
-  MutationBehavior,
   MutationQueryReducersMap,
 } from './data/mutationResults';
 
@@ -54,27 +55,32 @@ import {
 } from './queries/getFromAST';
 
 import {
+  NetworkStatus,
+} from './queries/networkStatus';
+
+import {
+  addTypenameToDocument,
+} from './queries/queryTransform';
+
+import {
   ApolloError,
 } from './errors/ApolloError';
 
 import ApolloClient from './ApolloClient';
-import {
-  createFragment,
-  clearFragmentDefinitions,
-  disableFragmentWarnings,
-  enableFragmentWarnings,
-} from './fragments';
 
 import {
   ApolloQueryResult,
-} from './core/QueryManager';
+} from './core/types';
 
 import {
   toIdValue,
 } from './data/storeUtils';
 
-// We expose the print method from GraphQL so that people that implement
-// custom network interfaces can turn query ASTs into query strings as needed.
+import {
+  IntrospectionFragmentMatcher,
+  FragmentMatcherInterface,
+} from './data/fragmentMatcher';
+
 export {
   createNetworkInterface,
   createBatchingNetworkInterface,
@@ -82,38 +88,37 @@ export {
   createApolloReducer,
   readQueryFromStore,
   writeQueryToStore,
-  print as printAST,
+  addTypenameToDocument,
   createFragmentMap,
+  NetworkStatus,
   ApolloError,
-
-  // fragment stuff
-  createFragment,
-  clearFragmentDefinitions,
-  disableFragmentWarnings,
-  enableFragmentWarnings,
-
   getQueryDefinition,
   getFragmentDefinitions,
   FragmentMap,
-
   Request,
-
   ApolloQueryResult,
-
   toIdValue,
 
-  // internal type definitions for export
+  IntrospectionFragmentMatcher,
+  FragmentMatcherInterface,
+
+  // Expose the print method from GraphQL so that people that implement
+  // custom network interfaces can turn query ASTs into query strings as needed.
+  print as printAST,
+
+  // Internal type definitions
   NetworkInterface,
   HTTPFetchNetworkInterface,
+  HTTPBatchedNetworkInterface,
+  FetchPolicy,
   WatchQueryOptions,
   MutationOptions,
   ObservableQuery,
-  MutationBehavior,
   MutationQueryReducersMap,
   Subscription,
-  DeprecatedSubscriptionOptions as SubscriptionOptions,
+  SubscriptionOptions,
   ApolloStore,
-  ApolloClient
+  ApolloClient,
 };
 
 export default ApolloClient;

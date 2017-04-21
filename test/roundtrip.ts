@@ -8,12 +8,17 @@ import {
 } from '../src/queries/getFromAST';
 
 import {
-  Document,
+  DocumentNode,
 } from 'graphql';
 
 import gql from 'graphql-tag';
 
 import { withWarning } from './util/wrap';
+
+import {
+  HeuristicFragmentMatcher,
+} from '../src/data/fragmentMatcher';
+const fragmentMatcherFunction = new HeuristicFragmentMatcher().match;
 
 describe('roundtrip', () => {
   it('real graphql result', () => {
@@ -408,7 +413,7 @@ describe('roundtrip', () => {
   });
 });
 
-function storeRoundtrip(query: Document, result: any, variables = {}) {
+function storeRoundtrip(query: DocumentNode, result: any, variables = {}) {
   const fragmentMap = createFragmentMap(getFragmentDefinitions(query));
   const store = writeQueryToStore({
     result,
@@ -421,6 +426,7 @@ function storeRoundtrip(query: Document, result: any, variables = {}) {
     store,
     query,
     variables,
+    fragmentMatcherFunction,
   });
 
   assert.deepEqual(reconstructedResult, result);
