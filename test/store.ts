@@ -5,6 +5,7 @@ import gql from 'graphql-tag';
 import {
   Store,
   createApolloStore,
+  ReducerError,
 } from '../src/store';
 
 describe('createApolloStore', () => {
@@ -135,6 +136,8 @@ describe('createApolloStore', () => {
   });
 
   it('can reset itself and keep the observable query ids', () => {
+    const queryDocument = gql` query { abc }`;
+
     const initialState = {
       apollo: {
         data: {
@@ -148,15 +151,13 @@ describe('createApolloStore', () => {
     const emptyState: Store = {
       queries: {
         'test.0': {
-          'forceFetch': false,
-          'graphQLErrors': null as any,
+          'graphQLErrors': [],
           'lastRequestId': 1,
-          'loading': true,
           'networkStatus': 1,
-          'networkError': null as any,
-          'previousVariables': undefined as any,
+          'networkError': null,
+          'previousVariables': null,
           'queryString': '',
-          'returnPartialData': false,
+          'document': queryDocument,
           'variables': {},
           'metadata': null,
         },
@@ -175,10 +176,9 @@ describe('createApolloStore', () => {
       type: 'APOLLO_QUERY_INIT',
       queryId: 'test.0',
       queryString: '',
-      document: gql` query { abc }`,
+      document: queryDocument,
       variables: {},
-      forceFetch: false,
-      returnPartialData: false,
+      fetchPolicy: 'cache-first',
       requestId: 1,
       storePreviousVariables: false,
       isPoll: false,
@@ -210,31 +210,29 @@ describe('createApolloStore', () => {
     // Try to crash the store with a bad behavior update
     const mutationString = `mutation Increment { incrementer { counter } }`;
     const mutation = gql`${mutationString}`;
+    const variables = {};
 
     store.dispatch({
       type: 'APOLLO_MUTATION_INIT',
       mutationString,
       mutation,
-      variables: {},
+      variables,
       operationName: 'Increment',
       mutationId: '1',
       optimisticResponse: {data: {incrementer: {counter: 1}}},
     });
-    const throwingBehavior: any = [
-      {
-        type: 'UnknownBehavior',
-      },
-    ];
+
     store.dispatch({
       type: 'APOLLO_MUTATION_RESULT',
       result: {data: {incrementer: {counter: 1}}},
       document: mutation,
       operationName: 'Increment',
+      variables,
       mutationId: '1',
-      resultBehaviors: throwingBehavior,
+      extraReducers: [() => { throw new Error('test!!!'); }],
     });
 
-    assert(/UnknownBehavior/.test(store.getState().apollo.reducerError));
+    assert(/test!!!/.test(store.getState().apollo.reducerError.error));
 
     const resetState = {
       queries: {},
@@ -244,9 +242,20 @@ describe('createApolloStore', () => {
         {
           data: {},
           mutationId: '1',
+          action: {
+            type: 'APOLLO_MUTATION_RESULT',
+            result: {data: {data: {incrementer: {counter: 1}}}},
+            document: mutation,
+            operationName: 'Increment',
+            variables: {},
+            mutationId: '1',
+            extraReducers: undefined,
+            updateQueries: undefined,
+            update: undefined,
+          },
         },
       ],
-      reducerError: (null as Error | null),
+      reducerError: (null as ReducerError | null),
     };
 
     store.dispatch({

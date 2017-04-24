@@ -14,37 +14,27 @@ import {
 } from '../data/storeUtils';
 
 import {
-  SelectionSet,
+  DocumentNode,
+  SelectionSetNode,
   GraphQLError,
 } from 'graphql';
 
-import assign = require('lodash/assign');
-import isEqual = require('lodash/isEqual');
+import { isEqual } from '../util/isEqual';
+
+import { NetworkStatus } from './networkStatus';
 
 export interface QueryStore {
   [queryId: string]: QueryStoreValue;
 }
 
-export enum NetworkStatus {
-  loading = 1,
-  setVariables = 2,
-  fetchMore = 3,
-  refetch = 4,
-  poll = 6,
-  ready = 7,
-  error = 8,
-}
-
 export type QueryStoreValue = {
   queryString: string;
+  document: DocumentNode;
   variables: Object;
-  previousVariables: Object;
-  loading: boolean;
+  previousVariables: Object | null;
   networkStatus: NetworkStatus;
-  networkError: Error;
+  networkError: Error | null;
   graphQLErrors: GraphQLError[];
-  forceFetch: boolean;
-  returnPartialData: boolean;
   lastRequestId: number;
   metadata: any;
 };
@@ -52,7 +42,7 @@ export type QueryStoreValue = {
 export interface SelectionSetWithRoot {
   id: string;
   typeName: string;
-  selectionSet: SelectionSet;
+  selectionSet: SelectionSetNode;
 }
 
 export function queries(
@@ -60,7 +50,7 @@ export function queries(
   action: ApolloAction,
 ): QueryStore {
   if (isQueryInitAction(action)) {
-    const newState = assign({}, previousState) as QueryStore;
+    const newState = { ...previousState } as QueryStore;
 
     const previousQuery = previousState[action.queryId];
 
@@ -73,7 +63,7 @@ export function queries(
 
     let isSetVariables = false;
 
-    let previousVariables: Object;
+    let previousVariables: Object | null = null;
     if (
       action.storePreviousVariables &&
       previousQuery &&
@@ -105,17 +95,35 @@ export function queries(
     // before the initial fetch is done, you'll get an error.
     newState[action.queryId] = {
       queryString: action.queryString,
+      document: action.document,
       variables: action.variables,
       previousVariables,
-      loading: true,
       networkError: null,
-      graphQLErrors: null,
+      graphQLErrors: [],
       networkStatus: newNetworkStatus,
-      forceFetch: action.forceFetch,
-      returnPartialData: action.returnPartialData,
       lastRequestId: action.requestId,
       metadata: action.metadata,
     };
+
+    // If the action had a `moreForQueryId` property then we need to set the
+    // network status on that query as well to `fetchMore`.
+    //
+    // We have a complement to this if statement in the query result and query
+    // error action branch, but importantly *not* in the client result branch.
+    // This is because the implementation of `fetchMore` *always* sets
+    // `fetchPolicy` to `network-only` so we would never have a client result.
+    if (typeof action.fetchMoreForQueryId === 'string') {
+      newState[action.fetchMoreForQueryId] = {
+        // We assume that that both a query with id `action.moreForQueryId`
+        // already exists and that it is not `action.queryId`. This is a safe
+        // assumption given how we set `moreForQueryId`.
+        ...previousState[action.fetchMoreForQueryId],
+        // We set the network status to `fetchMore` here overwriting any
+        // network status that currently exists. This is how network statuses
+        // are set normally, so it makes sense to set it this way here as well.
+        networkStatus: NetworkStatus.fetchMore,
+      };
+    }
 
     return newState;
   } else if (isQueryResultAction(action)) {
@@ -128,16 +136,26 @@ export function queries(
       return previousState;
     }
 
-    const newState = assign({}, previousState) as QueryStore;
+    const newState = { ...previousState } as QueryStore;
     const resultHasGraphQLErrors = graphQLResultHasError(action.result);
 
-    newState[action.queryId] = assign({}, previousState[action.queryId], {
-      loading: false,
+    newState[action.queryId] = {
+      ...previousState[action.queryId],
       networkError: null,
-      graphQLErrors: resultHasGraphQLErrors ? action.result.errors : null,
+      graphQLErrors: resultHasGraphQLErrors ? action.result.errors : [],
       previousVariables: null,
       networkStatus: NetworkStatus.ready,
-    }) as QueryStoreValue;
+    };
+
+    // If we have a `fetchMoreForQueryId` then we need to update the network
+    // status for that query. See the branch for query initialization for more
+    // explanation about this process.
+    if (typeof action.fetchMoreForQueryId === 'string') {
+      newState[action.fetchMoreForQueryId] = {
+        ...previousState[action.fetchMoreForQueryId],
+        networkStatus: NetworkStatus.ready,
+      };
+    }
 
     return newState;
   } else if (isQueryErrorAction(action)) {
@@ -150,13 +168,24 @@ export function queries(
       return previousState;
     }
 
-    const newState = assign({}, previousState) as QueryStore;
+    const newState = { ...previousState } as QueryStore;
 
-    newState[action.queryId] = assign({}, previousState[action.queryId], {
-      loading: false,
+    newState[action.queryId] = {
+      ...previousState[action.queryId],
       networkError: action.error,
       networkStatus: NetworkStatus.error,
-    }) as QueryStoreValue;
+    };
+
+    // If we have a `fetchMoreForQueryId` then we need to update the network
+    // status for that query. See the branch for query initialization for more
+    // explanation about this process.
+    if (typeof action.fetchMoreForQueryId === 'string') {
+      newState[action.fetchMoreForQueryId] = {
+        ...previousState[action.fetchMoreForQueryId],
+        networkError: action.error,
+        networkStatus: NetworkStatus.error,
+      };
+    }
 
     return newState;
   } else if (isQueryResultClientAction(action)) {
@@ -164,21 +193,21 @@ export function queries(
       return previousState;
     }
 
-    const newState = assign({}, previousState) as QueryStore;
+    const newState = { ...previousState } as QueryStore;
 
-    newState[action.queryId] = assign({}, previousState[action.queryId], {
-      loading: !action.complete,
+    newState[action.queryId] = {
+      ...previousState[action.queryId],
       networkError: null,
       previousVariables: null,
       // XXX I'm not sure what exactly action.complete really means. I assume it means we have the complete result
       // and do not need to hit the server. Not sure when we'd fire this action if the result is not complete, so that bears explanation.
       // We should write that down somewhere.
       networkStatus: action.complete ? NetworkStatus.ready : NetworkStatus.loading,
-    }) as QueryStoreValue;
+    };
 
     return newState;
   } else if (isQueryStopAction(action)) {
-    const newState = assign({}, previousState) as QueryStore;
+    const newState = { ...previousState } as QueryStore;
 
     delete newState[action.queryId];
     return newState;
@@ -201,7 +230,10 @@ function resetQueryState(state: QueryStore, action: StoreResetAction): QueryStor
     return (observableQueryIds.indexOf(queryId) > -1);
   }).reduce((res, key) => {
     // XXX set loading to true so listeners don't trigger unless they want results with partial data
-    res[key] = assign({}, state[key], { loading: true, networkStatus: NetworkStatus.loading });
+    res[key] = {
+      ...state[key],
+      networkStatus: NetworkStatus.loading,
+    };
 
     return res;
   }, {} as QueryStore);
