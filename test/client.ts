@@ -1497,7 +1497,7 @@ describe('client', () => {
 
       subscribeAndCount(done, obs, (handleCount, result) => {
         if (handleCount === 1) {
-          assert.equal(result.data, undefined);
+          assert.deepEqual(result.data, {});
           assert(result.loading);
         } else if (handleCount === 2) {
           assert.deepEqual(result.data, networkFetch);
@@ -1519,7 +1519,7 @@ describe('client', () => {
       let count = 0;
       obs.subscribe({
         next: (result) => {
-          assert.equal(result.data, undefined);
+          assert.deepEqual(result.data, {});
           assert(result.loading);
           count++;
          },
