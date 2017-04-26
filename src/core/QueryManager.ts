@@ -555,7 +555,7 @@ export class QueryManager {
             // result and mark it as stale.
             if (isMissing && fetchPolicy !== 'cache-only') {
               resultFromStore = {
-                data: lastResult && lastResult.data,
+                data: Object.assign({}, data, lastResult && lastResult.data),
                 loading: isNetworkRequestInFlight(queryStoreValue.networkStatus),
                 networkStatus: queryStoreValue.networkStatus,
                 stale: true,
